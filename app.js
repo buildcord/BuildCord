@@ -2,12 +2,20 @@ const SESSION_KEY = "buildcord:admin-session:v2";
 const MEMBER_KEYS = "buildcord:member-tickets:v2";
 const MEMBER_EMAIL_KEY = "buildcord:member-email:v1";
 const MEMBER_SESSION_KEY = "buildcord:member-session:v1";
+const DISCORD_SESSION_KEY = "buildcord:discord-session:v1";
+const DISCORD_LOGIN_URL =
+  "https://discord.com/oauth2/authorize?client_id=1495708372656193578&response_type=code&redirect_uri=https%3A%2F%2FBuildCord.pages.dev&scope=identify+email";
 const API_URL = "/api/tickets";
 const REFRESH_INTERVAL_MS = 30000;
-const savedMemberEmail = localStorage.getItem(MEMBER_EMAIL_KEY) || "";
+const discordCode = new URLSearchParams(window.location.search).get("code");
 
-localStorage.removeItem(MEMBER_SESSION_KEY);
-localStorage.removeItem(MEMBER_KEYS);
+if (discordCode) {
+  localStorage.setItem(DISCORD_SESSION_KEY, "discord:connected");
+  window.history.replaceState({}, document.title, `${window.location.origin}${window.location.pathname}`);
+}
+
+const savedMemberEmail = localStorage.getItem(MEMBER_EMAIL_KEY) || "";
+const savedDiscordSession = localStorage.getItem(DISCORD_SESSION_KEY) || "";
 
 const state = {
   tickets: [],
@@ -15,8 +23,8 @@ const state = {
   isAdmin: Boolean(sessionStorage.getItem(SESSION_KEY)),
   adminToken: sessionStorage.getItem(SESSION_KEY) || "",
   memberEmail: savedMemberEmail,
-  memberSession: "",
-  memberAccess: [],
+  memberSession: savedDiscordSession,
+  memberAccess: loadMemberAccess(),
   isLoading: false,
   hasLoaded: false,
   error: "",
@@ -38,6 +46,7 @@ const nodes = {
   adminId: document.querySelector("#adminId"),
   adminPassword: document.querySelector("#adminPassword"),
   loginError: document.querySelector("#loginError"),
+  discordLoginButton: document.querySelector("#discordLoginButton"),
   logoutButton: document.querySelector("#logoutButton"),
   sessionBadge: document.querySelector("#sessionBadge"),
   ticketList: document.querySelector("#ticketList"),
@@ -119,7 +128,7 @@ async function refreshTickets(options = {}) {
 
 async function createTicket({ member, email, service, details }) {
   if (!state.memberSession) {
-    throw new Error("Connecte-toi avec ton identifiant avant d'ouvrir un ticket.");
+    throw new Error("Connecte-toi avec Discord avant d'ouvrir un ticket.");
   }
 
   state.memberEmail = normalizeIdentifier(email);
@@ -160,6 +169,7 @@ function logout() {
   sessionStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(MEMBER_EMAIL_KEY);
   localStorage.removeItem(MEMBER_SESSION_KEY);
+  localStorage.removeItem(DISCORD_SESSION_KEY);
   localStorage.removeItem(MEMBER_KEYS);
   refreshTickets();
 }
@@ -216,7 +226,7 @@ function ticketName(ticket) {
 
 function renderTicketList() {
   if (!state.memberSession) {
-    nodes.ticketList.innerHTML = `<div class="empty-state">Connecte-toi avec ton identifiant pour voir tes tickets.</div>`;
+    nodes.ticketList.innerHTML = `<div class="empty-state">Connecte-toi avec Discord pour voir tes tickets.</div>`;
     return;
   }
 
@@ -259,7 +269,7 @@ function renderChat() {
     nodes.messageInput.disabled = true;
     nodes.sendButton.disabled = true;
     nodes.closeTicketButton.classList.add("hidden");
-    nodes.messages.innerHTML = `<div class="empty-state">Connecte-toi avec ton identifiant et ton mot de passe pour ouvrir ou suivre une commande.</div>`;
+    nodes.messages.innerHTML = `<div class="empty-state">Connecte-toi avec Discord pour ouvrir ou suivre une commande.</div>`;
     return;
   }
 
@@ -302,17 +312,21 @@ function renderChat() {
 }
 
 function renderSession() {
-  nodes.sessionBadge.textContent = state.isAdmin ? "Mode admin" : state.memberEmail ? state.memberEmail : "Mode membre";
-  nodes.logoutButton.classList.toggle("hidden", !state.isAdmin && !state.memberSession);
-  nodes.clearClosedButton.classList.toggle("hidden", !state.isAdmin || !state.tickets.some((ticket) => ticket.status === "closed"));
   const isMemberLoggedIn = Boolean(state.memberSession);
-  document.body.classList.toggle("login-required", !isMemberLoggedIn);
+
+  nodes.sessionBadge.textContent = state.isAdmin ? "Mode admin" : isMemberLoggedIn ? "Discord connecte" : "Mode membre";
+  nodes.discordLoginButton?.classList.toggle("hidden", state.isAdmin || isMemberLoggedIn);
+  nodes.logoutButton.classList.toggle("hidden", !state.isAdmin && !isMemberLoggedIn);
+  nodes.clearClosedButton.classList.toggle("hidden", !state.isAdmin || !state.tickets.some((ticket) => ticket.status === "closed"));
+  document.body.classList.remove("login-required");
   nodes.orderHeader.classList.toggle("hidden", !isMemberLoggedIn);
   nodes.orderForm.classList.toggle("hidden", !isMemberLoggedIn);
-  nodes.memberLoginForm.classList.toggle("hidden", isMemberLoggedIn);
-  nodes.memberEmail.value = state.memberEmail;
-  nodes.memberEmail.readOnly = true;
-  if (!nodes.restoreEmail.value) {
+  nodes.memberLoginForm?.classList.add("hidden");
+  if (!nodes.memberEmail.value && state.memberEmail) {
+    nodes.memberEmail.value = state.memberEmail;
+  }
+  nodes.memberEmail.readOnly = false;
+  if (nodes.restoreEmail && !nodes.restoreEmail.value) {
     nodes.restoreEmail.value = state.memberEmail;
   }
 }
@@ -347,7 +361,7 @@ nodes.orderForm.addEventListener("submit", async (event) => {
   }
 });
 
-nodes.memberLoginForm.addEventListener("submit", async (event) => {
+nodes.memberLoginForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   nodes.memberLoginError.textContent = "";
   const email = normalizeIdentifier(nodes.restoreEmail.value);
@@ -368,7 +382,7 @@ nodes.memberLoginForm.addEventListener("submit", async (event) => {
   }
 });
 
-nodes.togglePasswordButton.addEventListener("click", () => {
+nodes.togglePasswordButton?.addEventListener("click", () => {
   const isHidden = nodes.restoreCode.type === "password";
   nodes.restoreCode.type = isHidden ? "text" : "password";
   nodes.togglePasswordButton.textContent = isHidden ? "cacher" : "oeil";
@@ -376,6 +390,9 @@ nodes.togglePasswordButton.addEventListener("click", () => {
 });
 
 nodes.loginForm?.addEventListener("submit", login);
+nodes.discordLoginButton?.addEventListener("click", () => {
+  window.location.href = DISCORD_LOGIN_URL;
+});
 nodes.logoutButton.addEventListener("click", logout);
 nodes.messageForm.addEventListener("submit", sendMessage);
 nodes.closeTicketButton.addEventListener("click", closeTicket);

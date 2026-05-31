@@ -330,6 +330,7 @@ textarea:focus {
 
 .primary-action,
 .send-action,
+.discord-action,
 .ghost-action,
 .danger-action,
 .icon-action {
@@ -343,6 +344,15 @@ textarea:focus {
 .send-action {
   background: linear-gradient(135deg, var(--violet), #8a49ff);
   padding: 0.82rem 1rem;
+}
+
+.discord-action {
+  background: #5865f2;
+  padding: 0.62rem 0.85rem;
+}
+
+.discord-action:hover {
+  filter: brightness(1.08);
 }
 
 .ghost-action,

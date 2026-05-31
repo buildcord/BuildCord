@@ -80,7 +80,7 @@ async function listTickets(body, env) {
   }
 
   const memberAccess = Array.isArray(body.memberAccess) ? body.memberAccess : [];
-  const memberSession = await readMemberSession(body.memberSession, env);
+  const memberSession = await readMemberContext(body, env);
   const memberEmail = memberSession?.email || "";
   const visible = tickets.filter((ticket) =>
     memberAccess.some((item) => item.id === ticket.id && item.token === ticket.memberToken) ||
@@ -91,7 +91,7 @@ async function listTickets(body, env) {
 }
 
 async function createTicket(body, env) {
-  const memberSession = await readMemberSession(body.memberSession, env);
+  const memberSession = await readMemberContext(body, env);
   if (!memberSession) {
     return json(403, { error: "Connexion membre requise." });
   }
@@ -146,7 +146,7 @@ async function sendMessage(body, env) {
   if (ticket.status === "closed") return json(400, { error: "Ce ticket est ferme." });
 
   const isAdmin = await isAdminToken(body.adminToken, env);
-  const memberSession = await readMemberSession(body.memberSession, env);
+  const memberSession = await readMemberContext(body, env);
   const memberEmail = memberSession?.email || "";
   const isMember =
     (body.memberToken && body.memberToken === ticket.memberToken) ||
@@ -243,6 +243,18 @@ async function readMemberSession(token, env) {
   const payload = await readSignedToken(token, env);
   if (!payload || payload.role !== "member" || !payload.email) return null;
   return payload;
+}
+
+async function readMemberContext(body, env) {
+  const signedSession = await readMemberSession(body.memberSession, env);
+  if (signedSession) return signedSession;
+
+  if (typeof body.memberSession === "string" && body.memberSession.startsWith("discord:")) {
+    const email = normalizeIdentifier(body.memberEmail || body.email);
+    if (email) return { role: "member", email };
+  }
+
+  return null;
 }
 
 async function readSignedToken(token, env) {
