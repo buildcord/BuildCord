@@ -2,6 +2,8 @@ const TICKETS_KEY = "tickets";
 const MEMBER_ACCOUNTS_KEY = "member-accounts";
 const ADMIN_ID_HASH = "c0b77f7eee72dfd46520f934db2f0badf2a7915a80d9c7a049b3ccbfd9513c39";
 const ADMIN_PASSWORD_HASH = "13472559ec86e965f6d85c6cbfd035d02127e383bb960c08628555419e215cb9";
+const DISCORD_CLIENT_ID = "1495708372656193578";
+const DISCORD_REDIRECT_URI = "https://buildcord.pages.dev";
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -18,6 +20,7 @@ export async function onRequest(context) {
     const action = body.action;
 
     if (action === "login") return login(body, env);
+    if (action === "discordLogin") return discordLogin(body, env);
     if (action === "memberLogin") return memberLogin(body, env);
     if (action === "list") return listTickets(body, env);
     if (action === "create") return createTicket(body, env);
@@ -42,9 +45,56 @@ async function login(body, env) {
   return json(200, { adminToken: await signToken({ role: "admin", exp: Date.now() + 12 * 60 * 60 * 1000 }, env) });
 }
 
+async function discordLogin(body, env) {
+  const code = cleanText(body.code, 180);
+  const clientId = env.DISCORD_CLIENT_ID || DISCORD_CLIENT_ID;
+  const clientSecret = env.DISCORD_CLIENT_SECRET;
+  const redirectUri = cleanText(body.redirectUri || env.DISCORD_REDIRECT_URI || DISCORD_REDIRECT_URI, 180);
+
+  if (!code) return json(400, { error: "Code Discord manquant." });
+  if (!clientSecret) {
+    return json(500, { error: "Secret Discord manquant. Ajoute DISCORD_CLIENT_SECRET dans Cloudflare." });
+  }
+
+  const tokenBody = new URLSearchParams();
+  tokenBody.set("client_id", clientId);
+  tokenBody.set("client_secret", clientSecret);
+  tokenBody.set("grant_type", "authorization_code");
+  tokenBody.set("code", code);
+  tokenBody.set("redirect_uri", redirectUri);
+
+  const tokenResponse = await fetch("https://discord.com/api/v10/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: tokenBody,
+  });
+  const tokenData = await tokenResponse.json().catch(() => ({}));
+  if (!tokenResponse.ok || !tokenData.access_token) {
+    return json(401, { error: "Connexion Discord refusee. Verifie l'URL de redirection Discord." });
+  }
+
+  const userResponse = await fetch("https://discord.com/api/v10/users/@me", {
+    headers: { Authorization: `Bearer ${tokenData.access_token}` },
+  });
+  const user = await userResponse.json().catch(() => ({}));
+  if (!userResponse.ok || !user.id) {
+    return json(401, { error: "Impossible de lire ton profil Discord." });
+  }
+
+  const memberName = cleanText(user.global_name || user.username || `Discord ${user.id}`, 32);
+  const memberEmail = normalizeIdentifier(`discord:${user.id}`);
+  const memberSession = await signToken(
+    { role: "member", email: memberEmail, name: memberName, exp: Date.now() + 30 * 24 * 60 * 60 * 1000 },
+    env
+  );
+
+  return json(200, { memberEmail, memberName, memberSession });
+}
+
 async function memberLogin(body, env) {
   const identifier = normalizeIdentifier(body.identifier || body.memberIdentifier || body.email || body.memberEmail);
   const code = cleanText(body.code, 64);
+  const memberName = cleanText(body.memberName || identifier, 32);
   if (!identifier || !code) return json(400, { error: "Identifiant et mot de passe obligatoires." });
   if (code.length < 6) return json(400, { error: "Le mot de passe doit faire au moins 6 caracteres." });
 
@@ -54,6 +104,7 @@ async function memberLogin(body, env) {
   if (!accounts[identifier]) {
     accounts[identifier] = {
       codeHash,
+      memberName,
       createdAt: new Date().toISOString(),
     };
     await writeMemberAccounts(accounts, env);
@@ -61,9 +112,19 @@ async function memberLogin(body, env) {
     return json(401, { error: "Identifiant ou mot de passe incorrect." });
   }
 
+  const sessionName = cleanText(accounts[identifier].memberName || memberName || identifier, 32);
+  if (accounts[identifier].memberName !== sessionName) {
+    accounts[identifier].memberName = sessionName;
+    await writeMemberAccounts(accounts, env);
+  }
+
   return json(200, {
     memberEmail: identifier,
-    memberSession: await signToken({ role: "member", email: identifier, exp: Date.now() + 30 * 24 * 60 * 60 * 1000 }, env),
+    memberName: sessionName,
+    memberSession: await signToken(
+      { role: "member", email: identifier, name: sessionName, exp: Date.now() + 30 * 24 * 60 * 60 * 1000 },
+      env
+    ),
   });
 }
 
@@ -96,7 +157,7 @@ async function createTicket(body, env) {
     return json(403, { error: "Connexion membre requise." });
   }
 
-  const member = cleanText(body.member, 32);
+  const member = cleanText(memberSession.name || body.member, 32);
   const memberEmail = memberSession.email;
   const service = cleanText(body.service, 80);
   const details = cleanText(body.details, 1200);
@@ -251,7 +312,7 @@ async function readMemberContext(body, env) {
 
   if (typeof body.memberSession === "string" && body.memberSession.startsWith("discord:")) {
     const email = normalizeIdentifier(body.memberEmail || body.email);
-    if (email) return { role: "member", email };
+    if (email) return { role: "member", email, name: cleanText(body.memberName, 32) };
   }
 
   return null;

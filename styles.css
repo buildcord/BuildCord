@@ -328,6 +328,13 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(81, 213, 255, 0.13);
 }
 
+.readonly-field {
+  border-color: rgba(81, 213, 255, 0.35);
+  background: rgba(81, 213, 255, 0.08);
+  color: #e8f7ff;
+  cursor: not-allowed;
+}
+
 .primary-action,
 .send-action,
 .discord-action,
