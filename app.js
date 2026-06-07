@@ -432,9 +432,13 @@ nodes.togglePasswordButton?.addEventListener("click", () => {
 });
 
 nodes.loginForm?.addEventListener("submit", login);
-nodes.discordLoginButton?.addEventListener("click", () => {
-  window.location.href = DISCORD_LOGIN_URL;
-});
+if (nodes.discordLoginButton) {
+  nodes.discordLoginButton.setAttribute("href", DISCORD_LOGIN_URL);
+  nodes.discordLoginButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    window.location.assign(DISCORD_LOGIN_URL);
+  });
+}
 nodes.logoutButton.addEventListener("click", logout);
 nodes.messageForm.addEventListener("submit", sendMessage);
 nodes.closeTicketButton.addEventListener("click", closeTicket);

@@ -354,8 +354,13 @@ textarea:focus {
 }
 
 .discord-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: #5865f2;
   padding: 0.62rem 0.85rem;
+  text-decoration: none;
+  cursor: pointer;
 }
 
 .discord-action:hover {
